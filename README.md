@@ -1,1 +1,1 @@
-# nd-sb-tree
+# The n-dimensional Stern-Brocot tree
