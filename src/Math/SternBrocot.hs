@@ -1,3 +1,0 @@
-module Math.SternBrocot
-    (
-    ) where
