@@ -1,16 +1,30 @@
-{-# LANGUAGE TypeSynonymInstances #-}
-{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+
+{-|
+This module implements the algorithm for branch-wise and generation-wise construction of the /n/-dimensional
+Stern-Brocot tree due to Hakan Lennerstad as specified in \"The n-dimensional Stern-Brocot tree\", Blekige
+Institute of Technology, Research report No. 2012:04.
+-}
 module Math.SternBrocotTree
-    ( treeToLevel
+    ( {-|
+       * Generation-wise construction
+
+       $genWise
+      -}
+      treeToLevel
+      {-|
+       * Branch-wise construction
+
+       $branchWise
+      -}
     , branchToSequence
     ) where
 
-import Algebra.Graph as G (Graph, empty, overlay, overlays, edge)
+import Algebra.Graph as G (Graph, empty, overlay, overlays, vertex, edge)
 import Control.Monad (replicateM, (>=>))
 import Control.Monad.Loops (iterateUntil)
 import Control.Monad.Freer (Eff, Member, Members, run, runM, send)
@@ -25,24 +39,40 @@ import GHC.TypeLits (KnownNat)
 import Linear.V (Finite, Size, reflectDim)
 import Linear.Vector (Additive, basisFor)
 
-instance Monoid (Graph a) where
-    mempty  = G.empty
-    mappend = overlay
+data SBTree a = SBTree {toGraph :: Graph a} deriving (Show, Eq)
+
+instance Monoid (SBTree a) where
+    mempty = SBTree G.empty
+    mappend (SBTree g) (SBTree g') = SBTree $ overlay g g'
 
 type Container v = (Additive v, Traversable v, Foldable v, Finite v, KnownNat (Size v))
 
 type Sequence v = (Container v, Num (v Int), Eq (v Int))
 
-treeToLevel :: Sequence v => Int -> Graph (v Int)
-treeToLevel = runTreeEff . treeEff
+{-|
+$genWise
+Subtree of the /n/-dimensional Stern-Brocot tree extending down to the /m/th level (generation). The first level
+corresponds to the sequence of ones.
+-}
+treeToLevel :: Sequence v => Int    -- ^ /m/
+    -> Graph (v Int)
+treeToLevel 0 = G.empty
+treeToLevel 1 = vertex 1
+treeToLevel m = overlays . L.map toGraph . runTreeEff $ treeEff m
 
-branchToSequence :: Sequence v => v Int -> Graph (v Int)
-branchToSequence sq = runBranchEff sq (branchEff sq)
+{-|
+$branchWise
+Branch of the /n/-dimensional Stern-Brocot tree leading to the sequence /s/.
+-}
+branchToSequence :: Sequence v => v Int -- ^ /s/
+    -> Graph (v Int)
+branchToSequence 1  = 1
+branchToSequence sq = toGraph $ runBranchEff sq (branchEff sq)
 
 
 runTreeEff :: forall v. Sequence v =>
-    Eff '[EdgeEff v, SequenceEff v, IndexEff, []] [(v Int, v Int)] -> Graph (v Int)
-runTreeEff = overlays . runM . evalIndex (reflectDim (Proxy :: Proxy (Size v))) . runGraphEff
+    Eff '[EdgeEff v, SequenceEff v, IndexEff, []] [(v Int, v Int)] -> [SBTree (v Int)]
+runTreeEff = runM . evalIndex (reflectDim (Proxy :: Proxy (Size v))) . runGraphEff
 
 treeEff :: Sequence v =>
     Int -> Eff '[EdgeEff v, SequenceEff v, IndexEff, []] [(v Int, v Int)]
@@ -50,7 +80,7 @@ treeEff = flip replicateM (indexEff >>= graphEff)
 
 
 runBranchEff :: Sequence v =>
-    v Int -> Eff '[EdgeEff v, SequenceEff v, FactorEff] (v Int, v Int) -> Graph (v Int)
+    v Int -> Eff '[EdgeEff v, SequenceEff v, FactorEff] (v Int, v Int) -> SBTree (v Int)
 runBranchEff sq = run . evalFactor sq . runGraphEff
 
 branchEff :: Sequence v => v Int -> Eff '[EdgeEff v, SequenceEff v, FactorEff] (v Int, v Int)
@@ -58,7 +88,7 @@ branchEff sq = iterateUntil ((== sq) . snd) (factorEff >>= graphEff)
 
 
 runGraphEff :: Sequence v =>
-    Eff (EdgeEff v ': SequenceEff v ': r) w -> Eff r (Graph (v Int))
+    Eff (EdgeEff v ': SequenceEff v ': r) w -> Eff r (SBTree (v Int))
 runGraphEff = evalSequence . runEdge
 
 graphEff :: (Sequence v, Members '[EdgeEff v, SequenceEff v] r) =>
@@ -66,22 +96,22 @@ graphEff :: (Sequence v, Members '[EdgeEff v, SequenceEff v] r) =>
 graphEff = sequenceEff >=> edgeEff
 
 
-type EdgeEff v = Writer (Graph (v Int))
+type EdgeEff v = Writer (SBTree (v Int))
 
-runEdge :: Sequence v => Eff (EdgeEff v ': r) w -> Eff r (Graph (v Int))
+runEdge :: Sequence v => Eff (EdgeEff v ': r) w -> Eff r (SBTree (v Int))
 runEdge = fmap snd . runWriter
 
 edgeEff :: (Sequence v, Member (EdgeEff v) r) => (v Int, v Int) -> Eff r (v Int, v Int)
 edgeEff e = do
-    tell $ uncurry edge e
+    tell . SBTree $ uncurry edge e
     return e
 
 
 type SequenceEff v = State (v Int, Vector (v Int))
 
-evalSequence :: forall v r w. Sequence v => Eff (SequenceEff v ': r) w -> Eff r w
+evalSequence :: Sequence v => Eff (SequenceEff v ': r) w -> Eff r w
 evalSequence = flip evalState (ones, basis)
-    where ones  = 1 :: v Int
+    where ones  = 1
           basis = V.fromList $ basisFor ones
 
 sequenceEff :: (Sequence v, Member (SequenceEff v) r) => Vector Int -> Eff r (v Int, v Int)
