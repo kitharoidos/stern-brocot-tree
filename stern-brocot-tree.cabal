@@ -7,7 +7,7 @@ license:             BSD3
 license-file:        LICENSE
 author:              Michal Hadrava
 maintainer:          mihadra@gmail.com
-copyright:           Copyright: (c) 2016 Michal Hadrava
+copyright:           Copyright: (c) 2017 Michal Hadrava
 category:            Math
 build-type:          Simple
 extra-source-files:  README.md

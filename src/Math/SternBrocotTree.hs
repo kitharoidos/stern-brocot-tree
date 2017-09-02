@@ -5,22 +5,21 @@
 {-# LANGUAGE DataKinds #-}
 
 {-|
+Module      : Math.SternBrocotTree
+Description : Branch-wise and generation-wise construction of the n-dimensional S-B tree
+Copyright   : (c) Michal Hadrava, 2017
+License     : BSD3
+Maintainer  : mihadra@gmail.com
+Stability   : experimental
+Portability : POSIX
+
 This module implements the algorithm for branch-wise and generation-wise construction of the /n/-dimensional
 Stern-Brocot tree due to Hakan Lennerstad as specified in \"The n-dimensional Stern-Brocot tree\", Blekige
 Institute of Technology, Research report No. 2012:04.
 -}
 module Math.SternBrocotTree
-    ( {-|
-       * Generation-wise construction
-
-       $genWise
-      -}
-      treeToLevel
-      {-|
-       * Branch-wise construction
-
-       $branchWise
-      -}
+    ( Sequence
+    , treeToLevel
     , branchToSequence
     ) where
 
@@ -45,25 +44,18 @@ instance Monoid (SBTree a) where
     mempty = SBTree G.empty
     mappend (SBTree g) (SBTree g') = SBTree $ overlay g g'
 
-type Container v = (Additive v, Traversable v, Foldable v, Finite v, KnownNat (Size v))
+-- | Sequence of /n/ coprime positive integers.
+type Sequence v = (Additive v, Traversable v, Foldable v, Finite v, KnownNat (Size v), Num (v Int), Eq (v Int))
 
-type Sequence v = (Container v, Num (v Int), Eq (v Int))
-
-{-|
-$genWise
-Subtree of the /n/-dimensional Stern-Brocot tree extending down to the /m/th level (generation). The first level
-corresponds to the sequence of ones.
--}
+-- | Subtree of the /n/-dimensional Stern-Brocot tree extending down to the /m/th level (generation). The first
+-- level corresponds to the sequence of ones.
 treeToLevel :: Sequence v => Int    -- ^ /m/
     -> Graph (v Int)
 treeToLevel 0 = G.empty
 treeToLevel 1 = vertex 1
 treeToLevel m = overlays . L.map toGraph . runTreeEff $ treeEff m
 
-{-|
-$branchWise
-Branch of the /n/-dimensional Stern-Brocot tree leading to the sequence /s/.
--}
+-- | Branch of the /n/-dimensional Stern-Brocot tree leading to the sequence /s/.
 branchToSequence :: Sequence v => v Int -- ^ /s/
     -> Graph (v Int)
 branchToSequence 1  = 1
