@@ -3,88 +3,88 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE DataKinds #-}
 module Math.SternBrocotTree
     ( treeToLevel
     , branchToSequence
     ) where
 
 import Algebra.Graph as G (Graph, empty, overlay, overlays, edge)
-import Control.Monad (replicateM, void)
+import Control.Monad (replicateM, (>=>))
 import Control.Monad.Loops (iterateUntil)
-import Control.Eff (Eff, Member, SetMember, (:>), run)
-import Control.Eff.Lift (Lift, runLift, lift)
-import Control.Eff.State.Lazy (State, evalState, get, put)
-import Control.Eff.Writer.Lazy (Writer, runMonoidWriter, tell)
+import Control.Monad.Freer (Eff, Member, Members, run, runM, send)
+import Control.Monad.Freer.State (State, evalState, get, put)
+import Control.Monad.Freer.Writer (Writer, runWriter, tell)
+import Data.Foldable as F (toList)
+import Data.List as L (subsequences, init, tail, map, replicate)
 import Data.Monoid
-import Data.Typeable
-import Data.Void (Void)
-import Data.List as L (subsequences, init, map, replicate)
-import Data.Vector.Unboxed as V hiding (replicateM)
-import Linear.V (V, Dim, reflectDim, toVector)
-import Linear.Vector (basisFor)
+import Data.Proxy (Proxy (..))
+import Data.Vector as V hiding (replicateM)
+import GHC.TypeLits (KnownNat)
+import Linear.V (Finite, Size, reflectDim)
+import Linear.Vector (Additive, basisFor)
 
-
-type SBTree n = Graph (V n Int)
-
-instance Monoid (SBTree n) where
+instance Monoid (Graph a) where
     mempty  = G.empty
     mappend = overlay
 
+type Container v = (Additive v, Traversable v, Foldable v, Finite v, KnownNat (Size v))
 
-treeToLevel :: (Dim n, Typeable n) => Int -> SBTree n
+type Sequence v = (Container v, Num (v Int), Eq (v Int))
+
+treeToLevel :: Sequence v => Int -> Graph (v Int)
 treeToLevel = runTreeEff . treeEff
 
-branchToSequence :: (Dim n, Typeable n) => V n Int -> SBTree n
+branchToSequence :: Sequence v => v Int -> Graph (v Int)
 branchToSequence sq = runBranchEff sq (branchEff sq)
 
 
-runTreeEff :: forall n v. (Dim n, Typeable n) =>
-    Eff (EdgeEff n :> SequenceEff n :> IndexEff :> Lift [] :> Void) v -> SBTree n
-runTreeEff = overlays . runLift . evalIndex (reflectDim (Proxy :: Proxy n)) . runGraphEff
+runTreeEff :: forall v. Sequence v =>
+    Eff '[EdgeEff v, SequenceEff v, IndexEff, []] [(v Int, v Int)] -> Graph (v Int)
+runTreeEff = overlays . runM . evalIndex (reflectDim (Proxy :: Proxy (Size v))) . runGraphEff
 
-treeEff :: (Dim n, Typeable n) =>
-    Int -> Eff (EdgeEff n :> SequenceEff n :> IndexEff :> Lift [] :> Void) [(V n Int, V n Int)]
+treeEff :: Sequence v =>
+    Int -> Eff '[EdgeEff v, SequenceEff v, IndexEff, []] [(v Int, v Int)]
 treeEff = flip replicateM (indexEff >>= graphEff)
 
 
-runBranchEff :: (Dim n, Typeable n) =>
-    V n Int -> Eff (EdgeEff n :> SequenceEff n :> FactorEff :> Void) v -> SBTree n
+runBranchEff :: Sequence v =>
+    v Int -> Eff '[EdgeEff v, SequenceEff v, FactorEff] (v Int, v Int) -> Graph (v Int)
 runBranchEff sq = run . evalFactor sq . runGraphEff
 
-branchEff :: (Dim n, Typeable n) =>
-    V n Int -> Eff (EdgeEff n :> SequenceEff n :> FactorEff :> Void) ()
-branchEff sq = void $ iterateUntil ((== sq) . snd) (factorEff >>= graphEff)
+branchEff :: Sequence v => v Int -> Eff '[EdgeEff v, SequenceEff v, FactorEff] (v Int, v Int)
+branchEff sq = iterateUntil ((== sq) . snd) (factorEff >>= graphEff)
 
 
-runGraphEff :: (Dim n, Typeable n) => Eff (EdgeEff n :> SequenceEff n :> r) a -> Eff r (SBTree n)
+runGraphEff :: Sequence v =>
+    Eff (EdgeEff v ': SequenceEff v ': r) w -> Eff r (Graph (v Int))
 runGraphEff = evalSequence . runEdge
 
-graphEff :: (Dim n, Typeable n, Member (EdgeEff n) r, Member (SequenceEff n) r) =>
-    Vector Int -> Eff r (V n Int, V n Int)
-graphEff indices = sequenceEff indices >>= edgeEff
+graphEff :: (Sequence v, Members '[EdgeEff v, SequenceEff v] r) =>
+    Vector Int -> Eff r (v Int, v Int)
+graphEff = sequenceEff >=> edgeEff
 
 
-type EdgeEff n = Writer (SBTree n)
+type EdgeEff v = Writer (Graph (v Int))
 
-runEdge :: (Dim n, Typeable n) => Eff (EdgeEff n :> r) a -> Eff r (SBTree n)
-runEdge = fmap fst . runMonoidWriter
+runEdge :: Sequence v => Eff (EdgeEff v ': r) w -> Eff r (Graph (v Int))
+runEdge = fmap snd . runWriter
 
-edgeEff :: (Dim n, Typeable n, Member (EdgeEff n) r) =>
-    (V n Int, V n Int) -> Eff r (V n Int, V n Int)
+edgeEff :: (Sequence v, Member (EdgeEff v) r) => (v Int, v Int) -> Eff r (v Int, v Int)
 edgeEff e = do
     tell $ uncurry edge e
     return e
 
 
-type SequenceEff n = State (V n Int, Vector (V n Int))
+type SequenceEff v = State (v Int, Vector (v Int))
 
-evalSequence :: forall n r w. (Dim n, Typeable n) => Eff (SequenceEff n :> r) w -> Eff r w
-evalSequence = evalState (ones, basis)
-    where ones  = 1 :: V n Int
+evalSequence :: forall v r w. Sequence v => Eff (SequenceEff v ': r) w -> Eff r w
+evalSequence = flip evalState (ones, basis)
+    where ones  = 1 :: v Int
           basis = V.fromList $ basisFor ones
 
-sequenceEff :: (Dim n, Typeable n, Member (SequenceEff n) r) =>
-    Vector Int -> Eff r (V n Int, V n Int)
+sequenceEff :: (Sequence v, Member (SequenceEff v) r) => Vector Int -> Eff r (v Int, v Int)
 sequenceEff indices = do
     (sq, mat) <- get
     let mat' = cons sq $ backpermute mat indices
@@ -93,22 +93,23 @@ sequenceEff indices = do
     return (sq, sq')
 
 
-type IndexEff = State (Vector Int)
+type IndexEff = State Int
 
-evalIndex :: Int -> Eff (IndexEff :> Lift [] :> Void) w -> Eff (Lift [] :> Void) w
-evalIndex n = evalState (enumFromN 0 n)
+evalIndex :: Int -> Eff (IndexEff ': r) w -> Eff r w
+evalIndex = flip evalState . subtract 1
 
-indexEff :: (Member IndexEff r, SetMember Lift (Lift []) r) => Eff r (Vector Int)
+indexEff :: (Members '[IndexEff, []] r) => Eff r (Vector Int)
 indexEff = do
-    indices <- lift . L.map fromList . L.init . subsequences . toList =<< get
-    put indices
+    n <- get
+    indices <- send . L.map fromList . L.tail . L.init $ subsequences [0 .. n]
+    put $ V.length indices
     return indices
 
 
 type FactorEff = State (Vector Int)
 
-evalFactor :: Dim n => V n Int -> Eff (FactorEff :> Void) w -> Eff Void w
-evalFactor sq = evalState (convert $ toVector sq)
+evalFactor :: Sequence v => v Int -> Eff (FactorEff ': r) w -> Eff r w
+evalFactor sq = flip evalState (V.fromList $ F.toList sq)
 
 factorEff :: Member FactorEff r => Eff r (Vector Int)
 factorEff = do

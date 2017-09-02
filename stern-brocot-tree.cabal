@@ -14,15 +14,27 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
-  hs-source-dirs:      src
-  exposed-modules:     Math.SternBrocotTree
-  build-depends:       base >= 4.7 && < 5
-                     , linear
-                     , algebraic-graphs
-                     , vector
-                     , extensible-effects
-                     , monad-loops
-  default-language:    Haskell2010
+    hs-source-dirs:      src
+    exposed-modules:     Math.SternBrocotTree
+    build-depends:       base >= 4.7 && < 5
+                       , linear
+                       , algebraic-graphs
+                       , vector
+                       , freer-effects
+                       , monad-loops
+    default-language:    Haskell2010
+
+test-suite test
+    default-language:    Haskell2010
+    type:                exitcode-stdio-1.0
+    hs-source-dirs:      tests
+    main-is:             Tests.hs
+    build-depends:       base >= 4.7 && < 5
+                       , algebraic-graphs
+                       , tasty
+                       , tasty-hspec
+                       , linear
+                       , stern-brocot-tree
 
 source-repository head
   type:     git
