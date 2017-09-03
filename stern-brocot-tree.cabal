@@ -1,7 +1,7 @@
 name:                stern-brocot-tree
 version:             0.1.0.0
 synopsis:            The n-dimensional Stern-Brocot tree
-description:         Branch-wise and generation-wise construction of the n-dimensional S-B tree
+description:         Branch-wise and generation-wise construction of the n-dimensional Stern-Brocot tree
 homepage:            https://github.com/kitharoidos/stern-brocot-tree#readme
 license:             BSD3
 license-file:        LICENSE

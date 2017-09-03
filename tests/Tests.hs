@@ -4,7 +4,7 @@ module Main
 
 import Algebra.Graph (Graph, overlays, path, edges)
 import Linear.V3
-import Math.SternBrocotTree (treeToLevel, branchToSequence)
+import Math.SternBrocotTree (treeToLevel, branchToRatio)
 import Test.Tasty (TestTree, defaultMain)
 import Test.Tasty.Hspec (testSpec, describe, it, shouldBe)
 
@@ -14,8 +14,8 @@ main = testTree >>= defaultMain
 testTree :: IO TestTree
 testTree = testSpec "(checked by Hspec)" $ do
     describe "Math.SternBrocotTree.branchToSequence" $
-        it "returns the correct branch to (16, 9, 6)" $
-            branchToSequence (V3 16 9 6) `shouldBe` correctBranch
+        it "returns the correct branch to 16:9:6" $
+            branchToRatio (V3 16 9 6) `shouldBe` correctBranch
     describe "Math.SternBrocotTree.treeToLevel" $
         it "returns the correct 3-dimensional tree down to the 3rd level" $
             treeToLevel 2 `shouldBe` correctTree

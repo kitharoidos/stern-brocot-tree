@@ -6,7 +6,7 @@
 
 {-|
 Module      : Math.SternBrocotTree
-Description : Branch-wise and generation-wise construction of the n-dimensional S-B tree
+Description : Branch-wise and generation-wise construction of the n-dimensional Stern-Brocot tree
 Copyright   : (c) Michal Hadrava, 2017
 License     : BSD3
 Maintainer  : mihadra@gmail.com
@@ -18,9 +18,9 @@ Stern-Brocot tree due to Hakan Lennerstad as specified in \"The n-dimensional St
 Institute of Technology, Research report No. 2012:04.
 -}
 module Math.SternBrocotTree
-    ( Sequence
+    ( RatioN
     , treeToLevel
-    , branchToSequence
+    , branchToRatio
     ) where
 
 import Algebra.Graph as G (Graph, empty, overlay, overlays, vertex, edge)
@@ -44,83 +44,83 @@ instance Monoid (SBTree a) where
     mempty = SBTree G.empty
     mappend (SBTree g) (SBTree g') = SBTree $ overlay g g'
 
--- | Sequence of /n/ coprime positive integers.
-type Sequence v = (Additive v, Traversable v, Foldable v, Finite v, KnownNat (Size v), Num (v Int), Eq (v Int))
+-- | An /n/-part ratio, i.e. a node in the /n/-dimensional Stern-Brocot tree.
+type RatioN r = (Additive r, Traversable r, Foldable r, Finite r, KnownNat (Size r), Num (r Int), Eq (r Int))
 
 -- | Subtree of the /n/-dimensional Stern-Brocot tree extending down to the /m/th level (generation). The first
--- level corresponds to the sequence of ones.
-treeToLevel :: Sequence v => Int    -- ^ /m/
-    -> Graph (v Int)
+-- level corresponds to the ratio 1:1:...1.
+treeToLevel :: RatioN r => Int    -- ^ /m/
+    -> Graph (r Int)
 treeToLevel 0 = G.empty
 treeToLevel 1 = vertex 1
 treeToLevel m = overlays . L.map toGraph . runTreeEff $ treeEff m
 
--- | Branch of the /n/-dimensional Stern-Brocot tree leading to the sequence /s/.
-branchToSequence :: Sequence v => v Int -- ^ /s/
-    -> Graph (v Int)
-branchToSequence 1  = 1
-branchToSequence sq = toGraph $ runBranchEff sq (branchEff sq)
+-- | Branch of the /n/-dimensional Stern-Brocot tree leading to the ratio /r/.
+branchToRatio :: RatioN r => r Int -- ^ /r/
+    -> Graph (r Int)
+branchToRatio 1  = 1
+branchToRatio r = toGraph $ runBranchEff r (branchEff r)
 
 
-runTreeEff :: forall v. Sequence v =>
-    Eff '[EdgeEff v, SequenceEff v, IndexEff, []] [(v Int, v Int)] -> [SBTree (v Int)]
-runTreeEff = runM . evalIndex (reflectDim (Proxy :: Proxy (Size v))) . runGraphEff
+runTreeEff :: forall r. RatioN r =>
+    Eff '[EdgeEff r, RatioEff r, IndexEff, []] [(r Int, r Int)] -> [SBTree (r Int)]
+runTreeEff = runM . evalIndex (reflectDim (Proxy :: Proxy (Size r))) . runGraphEff
 
-treeEff :: Sequence v =>
-    Int -> Eff '[EdgeEff v, SequenceEff v, IndexEff, []] [(v Int, v Int)]
+treeEff :: RatioN r =>
+    Int -> Eff '[EdgeEff r, RatioEff r, IndexEff, []] [(r Int, r Int)]
 treeEff = flip replicateM (indexEff >>= graphEff)
 
 
-runBranchEff :: Sequence v =>
-    v Int -> Eff '[EdgeEff v, SequenceEff v, FactorEff] (v Int, v Int) -> SBTree (v Int)
-runBranchEff sq = run . evalFactor sq . runGraphEff
+runBranchEff :: RatioN r =>
+    r Int -> Eff '[EdgeEff r, RatioEff r, FactorEff] (r Int, r Int) -> SBTree (r Int)
+runBranchEff r = run . evalFactor r . runGraphEff
 
-branchEff :: Sequence v => v Int -> Eff '[EdgeEff v, SequenceEff v, FactorEff] (v Int, v Int)
+branchEff :: RatioN r => r Int -> Eff '[EdgeEff r, RatioEff r, FactorEff] (r Int, r Int)
 branchEff sq = iterateUntil ((== sq) . snd) (factorEff >>= graphEff)
 
 
-runGraphEff :: Sequence v =>
-    Eff (EdgeEff v ': SequenceEff v ': r) w -> Eff r (SBTree (v Int))
-runGraphEff = evalSequence . runEdge
+runGraphEff :: RatioN r =>
+    Eff (EdgeEff r ': RatioEff r ': effs) w -> Eff effs (SBTree (r Int))
+runGraphEff = evalRatio . runEdge
 
-graphEff :: (Sequence v, Members '[EdgeEff v, SequenceEff v] r) =>
-    Vector Int -> Eff r (v Int, v Int)
-graphEff = sequenceEff >=> edgeEff
+graphEff :: (RatioN r, Members '[EdgeEff r, RatioEff r] effs) =>
+    Vector Int -> Eff effs (r Int, r Int)
+graphEff = ratioEff >=> edgeEff
 
 
-type EdgeEff v = Writer (SBTree (v Int))
+type EdgeEff r = Writer (SBTree (r Int))
 
-runEdge :: Sequence v => Eff (EdgeEff v ': r) w -> Eff r (SBTree (v Int))
+runEdge :: RatioN r => Eff (EdgeEff r ': effs) w -> Eff effs (SBTree (r Int))
 runEdge = fmap snd . runWriter
 
-edgeEff :: (Sequence v, Member (EdgeEff v) r) => (v Int, v Int) -> Eff r (v Int, v Int)
+edgeEff :: (RatioN r, Member (EdgeEff r) effs) => (r Int, r Int) -> Eff effs (r Int, r Int)
 edgeEff e = do
     tell . SBTree $ uncurry edge e
     return e
 
 
-type SequenceEff v = State (v Int, Vector (v Int))
+type RatioEff r = State (r Int, Vector (r Int))
 
-evalSequence :: Sequence v => Eff (SequenceEff v ': r) w -> Eff r w
-evalSequence = flip evalState (ones, basis)
+evalRatio :: RatioN r => Eff (RatioEff r ': effs) w -> Eff effs w
+evalRatio = flip evalState (ones, basis)
     where ones  = 1
           basis = V.fromList $ basisFor ones
 
-sequenceEff :: (Sequence v, Member (SequenceEff v) r) => Vector Int -> Eff r (v Int, v Int)
-sequenceEff indices = do
-    (sq, mat) <- get
-    let mat' = cons sq $ backpermute mat indices
-        sq'  = V.sum mat'
-    put (sq', mat')
-    return (sq, sq')
+ratioEff :: (RatioN r, Member (RatioEff r) effs) => Vector Int -> Eff effs (r Int, r Int)
+ratioEff indices = do
+    (r, mat) <- get
+    let mat' = cons r $ backpermute mat indices
+        r'  = V.sum mat'
+    put (r', mat')
+    return (r, r')
 
 
 type IndexEff = State Int
 
-evalIndex :: Int -> Eff (IndexEff ': r) w -> Eff r w
+evalIndex :: Int -> Eff (IndexEff ': effs) w -> Eff effs w
 evalIndex = flip evalState . subtract 1
 
-indexEff :: (Members '[IndexEff, []] r) => Eff r (Vector Int)
+indexEff :: (Members '[IndexEff, []] effs) => Eff effs (Vector Int)
 indexEff = do
     n <- get
     indices <- send . L.map fromList . L.tail . L.init $ subsequences [0 .. n]
@@ -130,10 +130,10 @@ indexEff = do
 
 type FactorEff = State (Vector Int)
 
-evalFactor :: Sequence v => v Int -> Eff (FactorEff ': r) w -> Eff r w
-evalFactor sq = flip evalState (V.fromList $ F.toList sq)
+evalFactor :: RatioN r => r Int -> Eff (FactorEff ': effs) w -> Eff effs w
+evalFactor r = flip evalState (V.fromList $ F.toList r)
 
-factorEff :: Member FactorEff r => Eff r (Vector Int)
+factorEff :: Member FactorEff effs => Eff effs (Vector Int)
 factorEff = do
     (f :: Vector Int) <- get
     let fmin    = V.minimum f
