@@ -17,11 +17,11 @@ library
     hs-source-dirs:      src
     exposed-modules:     Math.SternBrocotTree
     build-depends:       base >= 4.7 && < 5
-                       , linear
-                       , algebraic-graphs
-                       , vector
-                       , freer-effects
-                       , monad-loops
+                       , linear == 1.20.*
+                       , algebraic-graphs == 0.0.*
+                       , vector == 0.12.*
+                       , freer-effects == 0.3.*
+                       , monad-loops == 0.4.*
     default-language:    Haskell2010
 
 test-suite test
@@ -30,10 +30,10 @@ test-suite test
     hs-source-dirs:      tests
     main-is:             Tests.hs
     build-depends:       base >= 4.7 && < 5
-                       , algebraic-graphs
-                       , tasty
-                       , tasty-hspec
-                       , linear
+                       , algebraic-graphs == 0.0.*
+                       , tasty == 0.11.*
+                       , tasty-hspec == 1.1.*
+                       , linear == 1.20.*
                        , stern-brocot-tree
 
 source-repository head
