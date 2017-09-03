@@ -3,6 +3,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE TypeFamilies #-}
 
 {-|
 Module      : Math.SternBrocotTree
@@ -34,7 +35,7 @@ import Data.List as L (subsequences, init, tail, map)
 import Data.Monoid ()
 import Data.Proxy (Proxy (..))
 import Data.Vector as V hiding (replicateM)
-import GHC.TypeLits (KnownNat)
+import GHC.TypeLits (KnownNat, type (<=))
 import Linear.V (Finite, Size, reflectDim)
 import Linear.Vector (Additive, basisFor)
 import Numeric.Natural (Natural)
@@ -46,7 +47,7 @@ instance Monoid (SBTree a) where
     mappend (SBTree g) (SBTree g') = SBTree $ overlay g g'
 
 -- | An /n/-part ratio, i.e. a node in the /n/-dimensional Stern-Brocot tree.
-type RatioN r = (Additive r, Traversable r, Foldable r, Finite r, KnownNat (Size r), Num (r Natural), Eq (r Natural))
+type RatioN r = (Additive r, Traversable r, Foldable r, Finite r, KnownNat (Size r), 2 <= Size r, Num (r Natural), Eq (r Natural))
 
 -- | Subtree of the /n/-dimensional Stern-Brocot tree extending down to the /m/th level (generation). The first
 -- level corresponds to the ratio 1:1:...1.
