@@ -5,6 +5,7 @@ module Main
 import Algebra.Graph (Graph, overlays, path, edges)
 import Linear.V3
 import Math.SternBrocotTree (treeToLevel, branchToRatio)
+import Numeric.Natural (Natural)
 import Test.Tasty (TestTree, defaultMain)
 import Test.Tasty.Hspec (testSpec, describe, it, shouldBe)
 
@@ -25,7 +26,7 @@ testTree = testSpec "(checked by Hspec)" $ do
                                , V3  5 3 2
                                , V3  6 3 2
                                , V3 11 6 4
-                               , V3 16 9 6] :: Graph (V3 Int)
+                               , V3 16 9 6] :: Graph (V3 Natural)
           correctTree   = edges [ (V3 1 1 1, V3 2 1 1)
                                 , (V3 1 1 1, V3 1 2 1)
                                 , (V3 1 1 1, V3 1 1 2)
@@ -55,4 +56,4 @@ testTree = testSpec "(checked by Hspec)" $ do
                                 , (V3 1 2 2, V3 2 3 3)
                                 , (V3 1 2 2, V3 1 3 3)
                                 , (V3 1 2 2, V3 2 4 3)
-                                , (V3 1 2 2, V3 2 3 4)] :: Graph (V3 Int)
+                                , (V3 1 2 2, V3 2 3 4)] :: Graph (V3 Natural)
