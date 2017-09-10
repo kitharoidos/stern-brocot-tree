@@ -22,6 +22,7 @@ library
                        , vector == 0.12.*
                        , freer-effects == 0.3.*
                        , monad-loops == 0.4.*
+                       , positive == 0.4.*
     default-language:    Haskell2010
 
 test-suite test

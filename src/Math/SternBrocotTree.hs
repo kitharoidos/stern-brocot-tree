@@ -4,6 +4,7 @@
 {-# LANGUAGE ConstraintKinds #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TupleSections #-}
 
 {-|
 Module      : Math.SternBrocotTree
@@ -24,21 +25,22 @@ module Math.SternBrocotTree
     , branchToRatio
     ) where
 
-import Algebra.Graph as G (Graph, empty, overlay, overlays, vertex, edge)
+import Algebra.Graph as G (Graph, empty, overlay, overlays, vertices, edges)
 import Control.Monad (replicateM, (>=>))
 import Control.Monad.Loops (iterateUntil)
 import Control.Monad.Freer (Eff, Member, Members, run, runM, send)
 import Control.Monad.Freer.State (State, evalState, get, put)
 import Control.Monad.Freer.Writer (Writer, runWriter, tell)
 import Data.Foldable as F (toList, foldl1)
-import Data.List as L (subsequences, init, tail, map)
+import Data.List as L (subsequences, init, tail, map, head)
 import Data.Monoid ()
 import Data.Proxy (Proxy (..))
 import Data.Vector as V hiding (replicateM)
 import GHC.TypeLits (KnownNat, type (<=))
 import Linear.V (Finite, Size, reflectDim)
-import Linear.Vector (Additive, basisFor)
+import Linear.Vector (Additive, basis, basisFor)
 import Numeric.Natural (Natural)
+import Numeric.Positive (Positive)
 
 data SBTree a = SBTree {toGraph :: Graph a} deriving (Show, Eq)
 
@@ -51,35 +53,34 @@ type RatioN r = (Additive r, Traversable r, Foldable r, Finite r, KnownNat (Size
 
 -- | Subtree of the /n/-dimensional Stern-Brocot tree extending down to the /m/th level (generation). The first
 -- level corresponds to the ratio 1:1:...1.
-treeToLevel :: RatioN r => Int    -- ^ /m/
+treeToLevel :: forall r. RatioN r => Int    -- ^ /m/
     -> Graph (r Natural)
-treeToLevel 0 = G.empty
-treeToLevel 1 = vertex 1
+treeToLevel 0 = vertices (basis :: [r Natural])
 treeToLevel m = overlays . L.map toGraph . runTreeEff $ treeEff m
 
 -- | Branch of the /n/-dimensional Stern-Brocot tree leading to the ratio /r/.
-branchToRatio :: RatioN r => r Natural -- ^ /r/
+branchToRatio :: RatioN r => r Positive -- ^ /r/
     -> Graph (r Natural)
-branchToRatio 1  = 1
-branchToRatio r = toGraph $ runBranchEff r' (branchEff r')
-    where r' = flip div (F.foldl1 gcd r) <$> r
+branchToRatio r = toGraph $ runBranchEff r'' (branchEff r'')
+    where r'  = fromIntegral <$> r
+          r'' = flip div (F.foldl1 gcd r') <$> r'
 
 
 runTreeEff :: forall r. RatioN r =>
-    Eff '[EdgeEff r, RatioEff r, IndexEff, []] [(r Natural, r Natural)] -> [SBTree (r Natural)]
+    Eff '[EdgeEff r, RatioEff r, IndexEff, []] [r Natural] -> [SBTree (r Natural)]
 runTreeEff = runM . evalIndex (reflectDim (Proxy :: Proxy (Size r))) . runGraphEff
 
 treeEff :: RatioN r =>
-    Int -> Eff '[EdgeEff r, RatioEff r, IndexEff, []] [(r Natural, r Natural)]
+    Int -> Eff '[EdgeEff r, RatioEff r, IndexEff, []] [r Natural]
 treeEff = flip replicateM (indexEff >>= graphEff)
 
 
 runBranchEff :: RatioN r =>
-    r Natural -> Eff '[EdgeEff r, RatioEff r, FactorEff] (r Natural, r Natural) -> SBTree (r Natural)
+    r Natural -> Eff '[EdgeEff r, RatioEff r, FactorEff] (r Natural) -> SBTree (r Natural)
 runBranchEff r = run . evalFactor r . runGraphEff
 
-branchEff :: RatioN r => r Natural -> Eff '[EdgeEff r, RatioEff r, FactorEff] (r Natural, r Natural)
-branchEff r = iterateUntil ((== r) . snd) (factorEff >>= graphEff)
+branchEff :: RatioN r => r Natural -> Eff '[EdgeEff r, RatioEff r, FactorEff] (r Natural)
+branchEff r = iterateUntil (== r) (factorEff >>= graphEff)
 
 
 runGraphEff :: RatioN r =>
@@ -87,7 +88,7 @@ runGraphEff :: RatioN r =>
 runGraphEff = evalRatio . runEdge
 
 graphEff :: (RatioN r, Members '[EdgeEff r, RatioEff r] effs) =>
-    Vector Int -> Eff effs (r Natural, r Natural)
+    Vector Int -> Eff effs (r Natural)
 graphEff = ratioEff >=> edgeEff
 
 
@@ -96,10 +97,10 @@ type EdgeEff r = Writer (SBTree (r Natural))
 runEdge :: RatioN r => Eff (EdgeEff r ': effs) w -> Eff effs (SBTree (r Natural))
 runEdge = fmap snd . runWriter
 
-edgeEff :: (RatioN r, Member (EdgeEff r) effs) => (r Natural, r Natural) -> Eff effs (r Natural, r Natural)
+edgeEff :: (RatioN r, Member (EdgeEff r) effs) => [(r Natural, r Natural)] -> Eff effs (r Natural)
 edgeEff e = do
-    tell . SBTree $ uncurry edge e
-    return e
+    tell . SBTree $ edges e
+    return . snd $ L.head e
 
 
 type RatioEff r = State (r Natural, Vector (r Natural))
@@ -109,13 +110,13 @@ evalRatio = flip evalState (ones, basis)
     where ones  = 1
           basis = V.fromList $ basisFor ones
 
-ratioEff :: (RatioN r, Member (RatioEff r) effs) => Vector Int -> Eff effs (r Natural, r Natural)
+ratioEff :: (RatioN r, Member (RatioEff r) effs) => Vector Int -> Eff effs [(r Natural, r Natural)]
 ratioEff indices = do
     (r, mat) <- get
     let mat' = cons r $ backpermute mat indices
         r'  = V.sum mat'
     put (r', mat')
-    return (r, r')
+    return $ (, r) <$> V.toList mat
 
 
 type IndexEff = State Int
