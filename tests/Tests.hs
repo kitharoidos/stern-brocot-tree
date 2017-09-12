@@ -4,6 +4,7 @@ module Main
 
 import Algebra.Graph (Graph, overlays, path, edges, vertices)
 import Linear.V3
+import Linear.V (toV)
 import Math.SternBrocotTree (treeToLevel, branchToRatio)
 import Numeric.Natural (Natural)
 import Test.Tasty (TestTree, defaultMain)
@@ -16,16 +17,16 @@ testTree :: IO TestTree
 testTree = testSpec "(checked by Hspec)" $ do
     describe "Math.SternBrocotTree.branchToSequence" $
         it "returns the correct branch to 16:9:6" $
-            branchToRatio (V3 16 9 6) `shouldBe` correctBranch
+            branchToRatio (toV $ V3 16 9 6) `shouldBe` (toV <$> correctBranch)
     describe "Math.SternBrocotTree.branchToSequence" $
         it "returns the correct branch to 1:1:1" $
-            branchToRatio (V3  1 1 1) `shouldBe` correctBranchToOnes
+            branchToRatio (toV $ V3  1 1 1) `shouldBe` (toV <$> correctBranchToOnes)
     describe "Math.SternBrocotTree.treeToLevel" $
         it "returns the correct 3-dimensional tree down to the 3rd level" $
-            treeToLevel 3 `shouldBe` correctTree
+            treeToLevel 3 `shouldBe` (toV <$> correctTree)
     describe "Math.SternBrocotTree.treeToLevel" $
         it "returns the correct zeroth level of the 3-dimensional tree" $
-            treeToLevel 0 `shouldBe` correctZerothLevel
+            treeToLevel 0 `shouldBe` (toV <$> correctZerothLevel)
     where correctBranch         = edges [ (V3  1 0 0, V3  1 1 1)
                                         , (V3  0 1 0, V3  1 1 1)
                                         , (V3  0 0 1, V3  1 1 1)
