@@ -37,7 +37,7 @@ import Data.Monoid ()
 import Data.Proxy (Proxy (..))
 import Data.Vector as V hiding (replicateM)
 import GHC.TypeLits (Nat, KnownNat)
-import Linear.V (V, toVector, reflectDim)
+import Linear.V (V, toVector, reflectDim, dim)
 import Linear.Vector (basis, basisFor)
 import Numeric.Natural (Natural)
 import Numeric.Positive (Positive)
@@ -59,13 +59,16 @@ instance Monoid (SBTree n) where
 -- level corresponds to the ratio 1:1:...1.
 treeToLevel :: forall n. KnownNat n => Int    -- ^ /m/
     -> Graph (Vertex n)
-treeToLevel 0 = vertices (basis :: [Vertex n])
-treeToLevel m = overlays . L.map toGraph . runTreeEff $ treeEff m
+treeToLevel m
+    | reflectDim (Proxy :: Proxy n) >= 2 = overlays . L.map toGraph . runTreeEff $ treeEff m
+    | otherwise                          = G.empty
 
 -- | Branch of the /n/-dimensional Stern-Brocot tree leading to the ratio /r/.
 branchToRatio :: KnownNat n => Ratio n -- ^ /r/
     -> Graph (Vertex n)
-branchToRatio r = toGraph $ runBranchEff r'' (branchEff r'')
+branchToRatio r
+    | dim r >= 2 = toGraph $ runBranchEff r'' (branchEff r'')
+    | otherwise  = G.empty
     where r'  = fromIntegral <$> r
           r'' = flip div (F.foldl1 gcd r') <$> r'
 
@@ -73,8 +76,10 @@ branchToRatio r = toGraph $ runBranchEff r'' (branchEff r'')
 runTreeEff :: forall n. KnownNat n => Eff '[EdgeEff n, RatioEff n, IndexEff, []] [Vertex n] -> [SBTree n]
 runTreeEff = runM . evalIndex (reflectDim (Proxy :: Proxy n)) . runGraphEff
 
-treeEff :: KnownNat n => Int -> Eff '[EdgeEff n, RatioEff n, IndexEff, []] [Vertex n]
-treeEff = flip replicateM (indexEff >>= graphEff)
+treeEff :: forall n. KnownNat n => Int -> Eff '[EdgeEff n, RatioEff n, IndexEff, []] [Vertex n]
+treeEff m = do
+    tell . SBTree $ vertices (basis :: [Vertex n])
+    replicateM m (indexEff >>= graphEff)
 
 
 runBranchEff :: KnownNat n => Vertex n -> Eff '[EdgeEff n, RatioEff n, FactorEff] (Vertex n) -> SBTree n
