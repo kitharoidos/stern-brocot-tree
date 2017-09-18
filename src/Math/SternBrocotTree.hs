@@ -4,6 +4,8 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE KindSignatures #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 {-|
 Module      : Math.SternBrocotTree
@@ -22,13 +24,15 @@ module Math.SternBrocotTree
     ( Ratio
     , Vertex
     , treeToLevel
+    , treeToSubratio
     , branchToRatio
     ) where
 
 import Algebra.Graph as G (Graph, empty, overlay, overlays, vertices, edges)
-import Control.Monad (replicateM, (>=>))
+import Control.Monad (replicateM)
 import Control.Monad.Loops (iterateUntil)
 import Control.Monad.Freer (Eff, Member, Members, run, runM, send)
+import Control.Monad.Freer.Exception (Exc, throwError, runError)
 import Control.Monad.Freer.State (State, evalState, get, put)
 import Control.Monad.Freer.Writer (Writer, runWriter, tell)
 import Data.Foldable as F (foldl1)
@@ -49,63 +53,78 @@ type Ratio (n :: Nat) = V n Positive
 -- | A vertex in the /n/-dimensional Stern-Brocot tree.
 type Vertex (n :: Nat) = V n Natural
 
-data SBTree n = SBTree {toGraph :: Graph (Vertex n)} deriving (Show, Eq)
+data DimTooLow = DimTooLow deriving (Show, Eq)
 
-instance Monoid (SBTree n) where
-    mempty = SBTree G.empty
-    mappend (SBTree g) (SBTree g') = SBTree $ overlay g g'
+instance Monoid (Graph (Vertex n)) where
+    mempty  = G.empty
+    mappend = overlay
 
 -- | Subtree of the /n/-dimensional Stern-Brocot tree extending down to the /m/th level (generation). The first
 -- level corresponds to the ratio 1:1:...1.
-treeToLevel :: forall n. KnownNat n => Int    -- ^ /m/
+treeToLevel :: KnownNat n => Int    -- ^ /m/
     -> Graph (Vertex n)
-treeToLevel m
-    | reflectDim (Proxy :: Proxy n) >= 2 = overlays . L.map toGraph . runTreeEff $ treeEff m
-    | otherwise                          = G.empty
+treeToLevel = overlays . runTreeToLevelEff . treeToLevelEff
+
+treeToSubratio :: forall n. KnownNat n => Ratio n   -- ^ /r/
+    -> Graph (Vertex n)
+treeToSubratio r
+    | dim r >= 2 = undefined
+    | otherwise = G.empty
 
 -- | Branch of the /n/-dimensional Stern-Brocot tree leading to the ratio /r/.
 branchToRatio :: KnownNat n => Ratio n -- ^ /r/
     -> Graph (Vertex n)
-branchToRatio r
-    | dim r >= 2 = toGraph $ runBranchEff r'' (branchEff r'')
-    | otherwise  = G.empty
+branchToRatio r = runBranchToRatioEff r'' (branchToRatioEff r'')
     where r'  = fromIntegral <$> r
           r'' = flip div (F.foldl1 gcd r') <$> r'
 
 
-runTreeEff :: forall n. KnownNat n => Eff '[EdgeEff n, RatioEff n, IndexEff, []] [Vertex n] -> [SBTree n]
-runTreeEff = runM . evalIndex (reflectDim (Proxy :: Proxy n)) . runGraphEff
+runTreeToLevelEff :: forall n w. KnownNat n =>
+    Eff '[EdgeEff n, RatioEff n, Exc DimTooLow, IndexEff, []] w -> [Graph (Vertex n)]
+runTreeToLevelEff = runM . evalIndex (reflectDim (Proxy :: Proxy n)) . runGraphEff
 
-treeEff :: forall n. KnownNat n => Int -> Eff '[EdgeEff n, RatioEff n, IndexEff, []] [Vertex n]
-treeEff m = do
-    tell . SBTree $ vertices (basis :: [Vertex n])
+treeToLevelEff :: forall n. KnownNat n =>
+    Int -> Eff '[EdgeEff n, RatioEff n, Exc DimTooLow, IndexEff, []] [Vertex n]
+treeToLevelEff m = do
+    tell $ vertices (basis :: [Vertex n])
     replicateM m (indexEff >>= graphEff)
 
 
-runBranchEff :: KnownNat n => Vertex n -> Eff '[EdgeEff n, RatioEff n, FactorEff] (Vertex n) -> SBTree n
-runBranchEff r = run . evalFactor r . runGraphEff
+runBranchToRatioEff :: KnownNat n =>
+    Vertex n -> Eff '[EdgeEff n, RatioEff n, Exc DimTooLow, FactorEff] w -> Graph (Vertex n)
+runBranchToRatioEff r = run . evalFactor r . runGraphEff
 
-branchEff :: KnownNat n => Vertex n -> Eff '[EdgeEff n, RatioEff n, FactorEff] (Vertex n)
-branchEff r = iterateUntil (== r) (factorEff >>= graphEff)
+branchToRatioEff :: KnownNat n => Vertex n -> Eff '[EdgeEff n, RatioEff n, Exc DimTooLow, FactorEff] (Vertex n)
+branchToRatioEff r = iterateUntil (== r) (factorEff >>= graphEff)
 
 
-runGraphEff :: KnownNat n => Eff (EdgeEff n ': RatioEff n ': effs) w -> Eff effs (SBTree n)
-runGraphEff = evalRatio . runEdge
+runGraphEff :: KnownNat n =>
+    Eff (EdgeEff n ': RatioEff n ': Exc DimTooLow ': effs) w -> Eff effs (Graph (Vertex n))
+runGraphEff eff = do
+    x <- runError . evalRatio $ runEdge eff
+    return $ case x of
+        Left  DimTooLow -> G.empty
+        Right g         -> g
 
-graphEff :: KnownNat n => Members '[EdgeEff n, RatioEff n] effs =>
+graphEff :: forall n effs. (KnownNat n, Members '[EdgeEff n, RatioEff n, Exc DimTooLow] effs) =>
     Vector Int -> Eff effs (Vertex n)
-graphEff = ratioEff >=> edgeEff
+graphEff indices
+    | reflectDim (Proxy :: Proxy n) >= 2 = ratioEff indices >>= edgeEff
+    | otherwise = throwError DimTooLow
 
 
-type EdgeEff n = Writer (SBTree n)
+type EdgeEff n = Writer (Graph (Vertex n))
 
-runEdge :: Eff (EdgeEff n ': effs) w -> Eff effs (SBTree n)
+runEdge :: Eff (EdgeEff n ': effs) w -> Eff effs (Graph (Vertex n))
 runEdge = fmap snd . runWriter
 
-edgeEff :: Member (EdgeEff n) effs => [(Vertex n, Vertex n)] -> Eff effs (Vertex n)
-edgeEff e = do
-    tell . SBTree $ edges e
-    return . snd $ L.head e
+edgeEff :: forall n effs. (KnownNat n, Members [EdgeEff n, Exc DimTooLow] effs) =>
+    [(Vertex n, Vertex n)] -> Eff effs (Vertex n)
+edgeEff e
+    | reflectDim (Proxy :: Proxy n) >= 1 = do
+        tell $ edges e
+        return . snd $ L.head e
+    | otherwise = throwError DimTooLow
 
 
 type RatioEff n = State (Vertex n, Vector (Vertex n))

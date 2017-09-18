@@ -2,8 +2,10 @@ module Main
     ( main
     ) where
 
-import Algebra.Graph (Graph, overlays, path, edges, vertices)
-import Linear.V3
+import Algebra.Graph as G (Graph, overlays, path, edges, vertices, empty)
+import Linear.V0 (V0 (..))
+import Linear.V1 (V1 (..))
+import Linear.V3 (V3 (..))
 import Linear.V (toV)
 import Math.SternBrocotTree (treeToLevel, branchToRatio)
 import Numeric.Natural (Natural)
@@ -15,16 +17,18 @@ main = testTree >>= defaultMain
 
 testTree :: IO TestTree
 testTree = testSpec "(checked by Hspec)" $ do
-    describe "Math.SternBrocotTree.branchToSequence" $
+    describe "Math.SternBrocotTree.branchToSequence" $ do
         it "returns the correct branch to 16:9:6" $
             branchToRatio (toV $ V3 16 9 6) `shouldBe` (toV <$> correctBranch)
-    describe "Math.SternBrocotTree.branchToSequence" $
         it "returns the correct branch to 1:1:1" $
             branchToRatio (toV $ V3  1 1 1) `shouldBe` (toV <$> correctBranchToOnes)
-    describe "Math.SternBrocotTree.treeToLevel" $
+        it "returns the empty tree for the one-part ratio 1" $
+            branchToRatio (toV $ V1 1) `shouldBe` G.empty
+        it "returns the empty tree for the zero-part ratio" $
+            branchToRatio (toV $ V0) `shouldBe` G.empty
+    describe "Math.SternBrocotTree.treeToLevel" $ do
         it "returns the correct 3-dimensional tree down to the 3rd level" $
             treeToLevel 3 `shouldBe` (toV <$> correctTree)
-    describe "Math.SternBrocotTree.treeToLevel" $
         it "returns the correct zeroth level of the 3-dimensional tree" $
             treeToLevel 0 `shouldBe` (toV <$> correctZerothLevel)
     where correctBranch         = edges [ (V3  1 0 0, V3  1 1 1)
