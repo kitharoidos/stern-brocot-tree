@@ -28,21 +28,21 @@ module Math.SternBrocotTree
     , branchToRatio
     ) where
 
-import Algebra.Graph as G (Graph, empty, overlay, overlays, vertices, edges)
-import Control.Monad (replicateM)
+import Algebra.Graph as G (Graph, empty, overlay, overlays, edges)
+import Control.Monad as M (msum, guard)
 import Control.Monad.Loops (iterateUntil)
 import Control.Monad.Freer (Eff, Member, Members, run, runM, send)
-import Control.Monad.Freer.Exception (Exc, throwError, runError)
-import Control.Monad.Freer.State (State, evalState, get, put)
+import Control.Monad.Freer.NonDet (NonDet, makeChoiceA)
+import Control.Monad.Freer.State (State, evalState, get, put, modify)
 import Control.Monad.Freer.Writer (Writer, runWriter, tell)
 import Data.Foldable as F (foldl1)
 import Data.List as L (subsequences, init, tail, map, head)
 import Data.Monoid ()
 import Data.Proxy (Proxy (..))
-import Data.Vector as V hiding (replicateM)
+import Data.Vector as V hiding (replicateM, modify)
 import GHC.TypeLits (Nat, KnownNat)
-import Linear.V (V, toVector, reflectDim, dim)
-import Linear.Vector (basis, basisFor)
+import Linear.V (V, toVector, reflectDim)
+import Linear.Vector (basisFor)
 import Numeric.Natural (Natural)
 import Numeric.Positive (Positive)
 
@@ -53,23 +53,15 @@ type Ratio (n :: Nat) = V n Positive
 -- | A vertex in the /n/-dimensional Stern-Brocot tree.
 type Vertex (n :: Nat) = V n Natural
 
-data DimTooLow = DimTooLow deriving (Show, Eq)
-
-instance Monoid (Graph (Vertex n)) where
-    mempty  = G.empty
-    mappend = overlay
-
 -- | Subtree of the /n/-dimensional Stern-Brocot tree extending down to the /m/th level (generation). The first
 -- level corresponds to the ratio 1:1:...1.
-treeToLevel :: KnownNat n => Int    -- ^ /m/
+treeToLevel :: KnownNat n => Positive    -- ^ /m/
     -> Graph (Vertex n)
 treeToLevel = overlays . runTreeToLevelEff . treeToLevelEff
 
 treeToSubratio :: forall n. KnownNat n => Ratio n   -- ^ /r/
     -> Graph (Vertex n)
-treeToSubratio r
-    | dim r >= 2 = undefined
-    | otherwise = G.empty
+treeToSubratio = undefined
 
 -- | Branch of the /n/-dimensional Stern-Brocot tree leading to the ratio /r/.
 branchToRatio :: KnownNat n => Ratio n -- ^ /r/
@@ -79,38 +71,51 @@ branchToRatio r = runBranchToRatioEff r'' (branchToRatioEff r'')
           r'' = flip div (F.foldl1 gcd r') <$> r'
 
 
-runTreeToLevelEff :: forall n w. KnownNat n =>
-    Eff '[EdgeEff n, RatioEff n, Exc DimTooLow, IndexEff, []] w -> [Graph (Vertex n)]
-runTreeToLevelEff = runM . evalIndex (reflectDim (Proxy :: Proxy n)) . runGraphEff
+data DimTooLow = DimTooLow deriving (Show, Eq)
+          
+instance Monoid (Graph (Vertex n)) where
+    mempty  = G.empty
+    mappend = overlay
 
-treeToLevelEff :: forall n. KnownNat n =>
-    Int -> Eff '[EdgeEff n, RatioEff n, Exc DimTooLow, IndexEff, []] [Vertex n]
-treeToLevelEff m = do
-    tell $ vertices (basis :: [Vertex n])
-    replicateM m (indexEff >>= graphEff)
+
+runTreeToLevelEff :: forall n. KnownNat n =>
+    Eff '[EdgeEff n, RatioEff n, NonDet, IndexEff, CounterEff, []] (Vertex n) -> [Graph (Vertex n)]
+runTreeToLevelEff = runM . flip evalState 0 . evalIndex (reflectDim (Proxy :: Proxy n)) . runGraphEff
+
+treeToLevelEff :: (KnownNat n, Members '[CounterEff, EdgeEff n, RatioEff n, NonDet, IndexEff, []] effs) =>
+    Positive -> Eff effs (Vertex n)
+treeToLevelEff m = fmap fst $ iterateUntil ((== m') . snd) (indexEff >>= graphEff >>= counterEff)
+    where m' = fromIntegral m
+
+
+type CounterEff = State Natural
+
+counterEff :: (KnownNat n, Member CounterEff effs) => Vertex n -> Eff effs (Vertex n, Natural)
+counterEff v = do
+    modify (+ (1 :: Natural))
+    i <- get
+    return (v, i)
 
 
 runBranchToRatioEff :: KnownNat n =>
-    Vertex n -> Eff '[EdgeEff n, RatioEff n, Exc DimTooLow, FactorEff] w -> Graph (Vertex n)
+    Vertex n -> Eff '[EdgeEff n, RatioEff n, NonDet, FactorEff] (Vertex n) -> Graph (Vertex n)
 runBranchToRatioEff r = run . evalFactor r . runGraphEff
 
-branchToRatioEff :: KnownNat n => Vertex n -> Eff '[EdgeEff n, RatioEff n, Exc DimTooLow, FactorEff] (Vertex n)
+branchToRatioEff :: (KnownNat n, Members '[EdgeEff n, RatioEff n, NonDet, FactorEff] effs) =>
+    Vertex n -> Eff effs (Vertex n)
 branchToRatioEff r = iterateUntil (== r) (factorEff >>= graphEff)
 
 
-runGraphEff :: KnownNat n =>
-    Eff (EdgeEff n ': RatioEff n ': Exc DimTooLow ': effs) w -> Eff effs (Graph (Vertex n))
-runGraphEff eff = do
-    x <- runError . evalRatio $ runEdge eff
-    return $ case x of
-        Left  DimTooLow -> G.empty
-        Right g         -> g
+runGraphEff :: forall n effs. KnownNat n =>
+    Eff (EdgeEff n ': RatioEff n ': NonDet ': effs) (Vertex n) -> Eff effs (Graph (Vertex n))
+runGraphEff eff = fmap msum eff'
+    where eff' = makeChoiceA . evalRatio $ runEdge eff :: Eff effs (Maybe (Graph (Vertex n)))
 
-graphEff :: forall n effs. (KnownNat n, Members '[EdgeEff n, RatioEff n, Exc DimTooLow] effs) =>
+graphEff :: forall n effs. (KnownNat n, Members '[EdgeEff n, RatioEff n, NonDet] effs) =>
     Vector Int -> Eff effs (Vertex n)
-graphEff indices
-    | reflectDim (Proxy :: Proxy n) >= 2 = ratioEff indices >>= edgeEff
-    | otherwise = throwError DimTooLow
+graphEff indices = do
+    guard $ reflectDim (Proxy :: Proxy n) >= 2
+    ratioEff indices >>= edgeEff
 
 
 type EdgeEff n = Writer (Graph (Vertex n))
@@ -118,13 +123,12 @@ type EdgeEff n = Writer (Graph (Vertex n))
 runEdge :: Eff (EdgeEff n ': effs) w -> Eff effs (Graph (Vertex n))
 runEdge = fmap snd . runWriter
 
-edgeEff :: forall n effs. (KnownNat n, Members [EdgeEff n, Exc DimTooLow] effs) =>
+edgeEff :: forall n effs. (KnownNat n, Members [EdgeEff n, NonDet] effs) =>
     [(Vertex n, Vertex n)] -> Eff effs (Vertex n)
-edgeEff e
-    | reflectDim (Proxy :: Proxy n) >= 1 = do
-        tell $ edges e
-        return . snd $ L.head e
-    | otherwise = throwError DimTooLow
+edgeEff e = do
+    guard $ reflectDim (Proxy :: Proxy n) >= 1
+    tell $ edges e
+    return . snd $ L.head e
 
 
 type RatioEff n = State (Vertex n, Vector (Vertex n))
@@ -148,9 +152,10 @@ type IndexEff = State Int
 evalIndex :: Int -> Eff (IndexEff ': effs) w -> Eff effs w
 evalIndex = flip evalState . subtract 1
 
-indexEff :: (Members '[IndexEff, []] effs) => Eff effs (Vector Int)
+indexEff :: (Members '[IndexEff, NonDet, []] effs) => Eff effs (Vector Int)
 indexEff = do
     n <- get
+    guard $ n >= 0
     indices <- send . L.map fromList . L.tail . L.init $ subsequences [0 .. n]
     put $ V.length indices
     return indices

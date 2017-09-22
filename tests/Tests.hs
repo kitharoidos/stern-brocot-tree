@@ -9,6 +9,7 @@ import Linear.V3 (V3 (..))
 import Linear.V (toV)
 import Math.SternBrocotTree (treeToLevel, branchToRatio)
 import Numeric.Natural (Natural)
+import Numeric.Positive (Positive)
 import Test.Tasty (TestTree, defaultMain)
 import Test.Tasty.Hspec (testSpec, describe, it, shouldBe)
 
@@ -19,19 +20,21 @@ testTree :: IO TestTree
 testTree = testSpec "(checked by Hspec)" $ do
     describe "Math.SternBrocotTree.branchToSequence" $ do
         it "returns the correct branch to 16:9:6" $
-            branchToRatio (toV $ V3 16 9 6) `shouldBe` (toV <$> correctBranch)
+            branchToRatio (toV $ V3 16 9 6) `shouldBe` (toV <$> branch)
         it "returns the correct branch to 1:1:1" $
-            branchToRatio (toV $ V3  1 1 1) `shouldBe` (toV <$> correctBranchToOnes)
+            branchToRatio (toV $ V3  1 1 1) `shouldBe` (toV <$> branchToOnes)
         it "returns the empty tree for the one-part ratio 1" $
             branchToRatio (toV $ V1 1) `shouldBe` G.empty
         it "returns the empty tree for the zero-part ratio" $
             branchToRatio (toV $ V0) `shouldBe` G.empty
     describe "Math.SternBrocotTree.treeToLevel" $ do
         it "returns the correct 3-dimensional tree down to the 3rd level" $
-            treeToLevel 3 `shouldBe` (toV <$> correctTree)
-        it "returns the correct zeroth level of the 3-dimensional tree" $
-            treeToLevel 0 `shouldBe` (toV <$> correctZerothLevel)
-    where correctBranch         = edges [ (V3  1 0 0, V3  1 1 1)
+            treeToLevel 3 `shouldBe` (toV <$> tree)
+        it "returns the empty one-dimensional tree" $
+            treeToLevel infinity `shouldBe` (toV <$> empty1DTree)
+        it "returns the empty zero-dimensional tree" $
+            treeToLevel infinity `shouldBe` (toV <$> empty0DTree)
+    where branch                = edges [ (V3  1 0 0, V3  1 1 1)
                                         , (V3  0 1 0, V3  1 1 1)
                                         , (V3  0 0 1, V3  1 1 1)
                                         , (V3  1 0 0, V3  2 2 1)
@@ -48,10 +51,10 @@ testTree = testSpec "(checked by Hspec)" $ do
                                         , (V3  6 3 2, V3 11 6 4)
                                         , (V3  5 3 2, V3 16 9 6)
                                         , (V3 11 6 4, V3 16 9 6)] :: Graph (V3 Natural)
-          correctBranchToOnes   = edges [ (V3 1 0 0, V3 1 1 1)
+          branchToOnes          = edges [ (V3 1 0 0, V3 1 1 1)
                                         , (V3 0 1 0, V3 1 1 1)
                                         , (V3 0 0 1, V3 1 1 1)] :: Graph (V3 Natural)
-          correctTree           = edges [ (V3 1 0 0, V3 1 1 1)
+          tree                  = edges [ (V3 1 0 0, V3 1 1 1)
                                         , (V3 0 1 0, V3 1 1 1)
                                         , (V3 0 0 1, V3 1 1 1)
                                         , (V3 1 1 1, V3 2 1 1)
@@ -126,6 +129,6 @@ testTree = testSpec "(checked by Hspec)" $ do
                                         , (V3 0 0 1, V3 2 3 4)
                                         , (V3 1 1 1, V3 2 3 4)
                                         , (V3 1 2 2, V3 2 3 4)] :: Graph (V3 Natural)
-          correctZerothLevel = vertices [ V3 1 0 0
-                                        , V3 0 1 0
-                                        , V3 0 0 1] :: Graph (V3 Natural)
+          empty1DTree           = G.empty :: Graph (V1 Natural)
+          empty0DTree           = G.empty :: Graph (V0 Natural)
+          infinity              = fromIntegral (maxBound :: Int) :: Positive

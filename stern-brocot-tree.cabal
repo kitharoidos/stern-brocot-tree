@@ -35,6 +35,7 @@ test-suite test
                        , tasty == 0.11.*
                        , tasty-hspec == 1.1.*
                        , linear == 1.20.*
+                       , positive == 0.4.*
                        , stern-brocot-tree
 
 source-repository head
