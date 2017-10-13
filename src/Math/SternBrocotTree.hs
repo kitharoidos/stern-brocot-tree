@@ -16,15 +16,15 @@ Maintainer  : mihadra@gmail.com
 Stability   : experimental
 Portability : POSIX
 
-This module implements the algorithm for branch-wise and generation-wise construction of the /n/-dimensional
-Stern-Brocot tree due to Hakan Lennerstad as specified in \"The n-dimensional Stern-Brocot tree\", Blekige
-Institute of Technology, Research report No. 2012:04.
+This module implements the algorithm for branch-wise and generation-wise construction of the
+/n/-dimensional Stern-Brocot tree due to Hakan Lennerstad as specified in \"The n-dimensional
+Stern-Brocot tree\", Blekige Institute of Technology, Research report No. 2012:04.
 -}
 module Math.SternBrocotTree
     ( Ratio
     , Vertex
     , treeToLevel
-    , treeToSubratio
+    , hedgeToLevel
     , branchToRatio
     ) where
 
@@ -36,7 +36,7 @@ import Control.Monad.Freer.NonDet (NonDet, makeChoiceA)
 import Control.Monad.Freer.State (State, evalState, get, put, modify)
 import Control.Monad.Freer.Writer (Writer, runWriter, tell)
 import Data.Foldable as F (foldl1)
-import Data.List as L (subsequences, init, tail, map, head)
+import Data.List as L (subsequences, reverse, tails, init, tail, head, length, (++))
 import Data.Monoid ()
 import Data.Proxy (Proxy (..))
 import Data.Vector as V hiding (replicateM, modify)
@@ -53,15 +53,19 @@ type Ratio (n :: Nat) = V n Positive
 -- | A vertex in the /n/-dimensional Stern-Brocot tree.
 type Vertex (n :: Nat) = V n Natural
 
--- | Subtree of the /n/-dimensional Stern-Brocot tree extending down to the /m/th level (generation). The first
--- level corresponds to the ratio 1:1:...1.
-treeToLevel :: KnownNat n => Positive    -- ^ /m/
+-- | Subtree of the /n/-dimensional Stern-Brocot tree extending down to the /m/th level
+-- (generation). The first level corresponds to the ratio 1:1:...1.
+treeToLevel :: forall n. KnownNat n => Positive    -- ^ /m/
     -> Graph (Vertex n)
-treeToLevel = overlays . runTreeToLevelEff . treeToLevelEff
+treeToLevel = runTreeToLevelEff k . treeToLevelEff subsequences
+    where k = fromIntegral $ reflectDim (Proxy :: (Proxy n))
 
-treeToSubratio :: forall n. KnownNat n => Ratio n   -- ^ /r/
+-- | Subhedge of the /n/-dimensional Stern-Brocot hedge extending down to the /m/th level
+-- (generation). The first level corresponds to the ratio 1:1:...1. Compared to the tree, the hedge
+-- contains only nondecreasing ratios (i.e., 1:2:...2 but not 2:1:...2).
+hedgeToLevel :: KnownNat n => Positive   -- ^ /m/
     -> Graph (Vertex n)
-treeToSubratio = undefined
+hedgeToLevel = runTreeToLevelEff 0 . treeToLevelEff (L.reverse . tails)
 
 -- | Branch of the /n/-dimensional Stern-Brocot tree leading to the ratio /r/.
 branchToRatio :: KnownNat n => Ratio n -- ^ /r/
@@ -79,12 +83,17 @@ instance Monoid (Graph (Vertex n)) where
 
 
 runTreeToLevelEff :: forall n. KnownNat n =>
-    Eff '[EdgeEff n, RatioEff n, NonDet, IndexEff, CounterEff, []] (Vertex n) -> [Graph (Vertex n)]
-runTreeToLevelEff = runM . flip evalState 0 . evalIndex (reflectDim (Proxy :: Proxy n)) . runGraphEff
+    Natural
+    -> Eff '[EdgeEff n, RatioEff n, NonDet, IndexEff, CounterEff, []] (Vertex n)
+    -> Graph (Vertex n)
+runTreeToLevelEff k =
+    overlays . runM . flip evalState 0 . evalIndex indexState0 . runGraphEff
+    where indexState0 = (k', reflectDim (Proxy :: Proxy n) - k')
+          k' = fromIntegral k
 
-treeToLevelEff :: (KnownNat n, Members '[CounterEff, EdgeEff n, RatioEff n, NonDet, IndexEff, []] effs) =>
-    Positive -> Eff effs (Vertex n)
-treeToLevelEff m = fmap fst $ iterateUntil ((== m') . snd) (indexEff >>= graphEff >>= counterEff)
+treeToLevelEff :: (KnownNat n, Members '[CounterEff, EdgeEff n, RatioEff n, NonDet, IndexEff, []] effs) => ([Int] -> [[Int]]) -> Positive -> Eff effs (Vertex n)
+treeToLevelEff subsequences' m = fst <$>
+    iterateUntil ((== m') . snd) (indexEff subsequences' >>= graphEff >>= counterEff)
     where m' = fromIntegral m
 
 
@@ -147,18 +156,20 @@ ratioEff indices = do
     return $ (, r) <$> V.toList mat
 
 
-type IndexEff = State Int
+type IndexEff = State (Int, Int)
 
-evalIndex :: Int -> Eff (IndexEff ': effs) w -> Eff effs w
-evalIndex = flip evalState . subtract 1
+evalIndex :: (Int, Int) -> Eff (IndexEff ': effs) w -> Eff effs w
+evalIndex = flip evalState
 
-indexEff :: (Members '[IndexEff, NonDet, []] effs) => Eff effs (Vector Int)
-indexEff = do
-    n <- get
-    guard $ n >= 0
-    indices <- send . L.map fromList . L.tail . L.init $ subsequences [0 .. n]
-    put $ V.length indices
-    return indices
+indexEff :: (Members '[IndexEff, NonDet, []] effs) => ([Int] -> [[Int]]) -> Eff effs (Vector Int)
+indexEff subsequences' = do
+    (k, k') <- get
+    let n = k + k'
+    guard $ n >= 1
+    (indices, indices') <- send . L.tail . L.init $
+        [(i, i') | i <- subsequences [0 .. k - 1], i' <- subsequences' [k .. n - 1]]
+    put (L.length indices + 1, L.length indices')
+    return . fromList $ indices L.++ indices'
 
 
 type FactorEff = State (Vector Natural)
