@@ -74,8 +74,6 @@ branchToRatio r = runBranchToRatioEff r'' (branchToRatioEff r'')
     where r'  = fromIntegral <$> r
           r'' = flip div (F.foldl1 gcd r') <$> r'
 
-
-data DimTooLow = DimTooLow deriving (Show, Eq)
           
 instance Monoid (Graph (Vertex n)) where
     mempty  = G.empty
